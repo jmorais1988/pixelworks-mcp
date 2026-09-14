@@ -1,0 +1,19 @@
+{
+  "gba64": {
+    "size_preset": "64x64",
+    "quality": 4.0,
+    "loras": [
+      {
+        "name": "gba",
+        "weight": 70
+      }
+    ],
+    "rembg": true
+  },
+  "gem64": {
+    "prompt": "tiny pixel gem icon, faceted, red",
+    "size_preset": "64x64",
+    "quality": 3,
+    "rembg": true
+  }
+}

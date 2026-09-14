@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pixelworks-mcp"
+version = "1.0.0"
+description = "MCP server for pixel-art toolchains: Retro Diffusion, Aseprite (headless CLI) and Krita in one tool surface"
+readme = "Readme.md"
+license = { file = "LICENSE" }
+authors = [{ name = "João Morais" }]
+requires-python = ">=3.10"
+keywords = ["mcp", "pixel-art", "aseprite", "krita", "retro-diffusion", "stable-diffusion"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Multimedia :: Graphics",
+]
+# Keep in sync with requirements.txt.
+dependencies = [
+    "fastmcp==4.0.3",
+    "websockets>=12,<18",
+    "pillow>=10,<13",
+    "httpx>=0.27,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/jmorais1988/pixelworks-mcp"
+Issues = "https://github.com/jmorais1988/pixelworks-mcp/issues"
+
+[project.scripts]
+pixelworks = "server:main"
+
+[tool.setuptools]
+# Single-module layout: server.py is the whole server.
+py-modules = ["server"]

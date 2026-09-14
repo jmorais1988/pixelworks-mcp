@@ -1,0 +1,12 @@
+# pixelworks MCP server - direct runtime dependencies.
+# Python >= 3.10 required (developed on 3.12).
+# fastmcp MUST be the standalone 4.x package: server.py uses the fastmcp 4
+# registry (await mcp.list_tools(), FunctionTool.fn swapping) and
+# fastmcp.utilities.types.Image. Everything else resolves transitively.
+#
+# Last verified set (2026-09-15, Windows 11, Python 3.12):
+#   fastmcp 4.0.3, websockets 17.1, pillow 12.3.0, httpx 0.28.1
+fastmcp==4.0.3
+websockets>=12,<18
+pillow>=10,<13
+httpx>=0.27,<1
