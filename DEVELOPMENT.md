@@ -28,6 +28,10 @@ subsystem-dependent tool at import time via `await mcp.list_tools()` +
   (sic — the typo is the protocol's).
 - Image entries: `format: "png"` → base64 PNG, `format: "bytes"` → base64
   raw RGBA.
+- Cloud `rd_api_*` key (`_api_key()`): explicit `api_key` arg → `RD_API_KEY`
+  env → `EXT_DIR/data/settings.json["rdapikey"]` (what the RD Aseprite
+  dialog saves). Any read error on that file is swallowed and treated as
+  "no key".
 - The backend minimizes/restores its console window on **every** handshake,
   so the server keeps ONE persistent socket per process (handshake once,
   auto-reconnect on drop). `rd_status` only opens a socket by default;

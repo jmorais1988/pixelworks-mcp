@@ -45,7 +45,9 @@ overview of what is currently up.
    (retrodiffusion.ai) is supported as an alternative to the local model: a
    **retrodiffusion.ai API key** enables the four cloud tools
    (`rd_api_txt2img`, `rd_api_img2img`, `rd_api_txt2anim`,
-   `rd_api_img2anim`).
+   `rd_api_img2anim`). If you already entered the key in the Retro Diffusion
+   dialog inside Aseprite, the server picks it up from there automatically
+   (see `RD_API_KEY` below).
 5. *Optional* — **Krita 5.x with the bundled bridge plugin installed**
    (`krita-plugin/` in this repo; HTTP API on `localhost:5678`), only for
    the `krita_*` tools.
@@ -113,7 +115,7 @@ resolve:
 | `RD_OUT_DIR` | `<package>\output\` (auto-created) | Where generated images/sprites are saved |
 | `RD_PRESET_FILE` | `<package>\presets.json` | Preset store for `rd_preset_*` |
 | `RD_GEN_TIMEOUT` | `900` (seconds) | Generation timeout |
-| `RD_API_KEY` | *(empty)* | retrodiffusion.ai key for `rd_api_*` tools |
+| `RD_API_KEY` | *(empty)* | retrodiffusion.ai key for `rd_api_*` tools. Resolution order per call: the tool's `api_key` argument → this variable → the key saved by the RD Aseprite dialog in `<RD_EXTENSION_DIR>\data\settings.json` (`rdapikey`). Only needed here if you never entered it in Aseprite |
 | `KRITA_URL` | `http://localhost:5678` | Krita MCP plugin HTTP endpoint |
 
 Alternatively, edit the configuration block near the top of `server.py`
@@ -398,8 +400,11 @@ Each prints `PASS`/`FAIL` per step and ends with `ALL GREEN` (exit 0) or a
   verified upstream bug), so it is quarantined — use `krita_adjust_pixels`
   (Pillow over the pixel bridge) for invert/grayscale/hsv/blur/brightness-
   contrast/posterize, and `krita_list_filters` for the native catalog.
-- **`rd_api_*` tools report a key error** — set `RD_API_KEY` (or pass the key
-  per call).
+- **`rd_api_*` tools report `no Retro Diffusion API key`** — none of the three
+  sources resolved: pass `api_key` on the call, set `RD_API_KEY`, or enter
+  the key once in the Retro Diffusion dialog inside Aseprite (stored as
+  `rdapikey` in `<RD_EXTENSION_DIR>\data\settings.json`; that lookup also
+  fails silently if `RD_EXTENSION_DIR` points to the wrong folder).
 - **Degenerate/garbled small sprites from raw RD usage** — this server already
   normalizes onto RD's 8px latent grid internally.
 
