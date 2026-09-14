@@ -4,6 +4,11 @@ __pycache__/
 .venv/
 venv/
 
+# Packaging (pip install . / build)
+*.egg-info/
+build/
+dist/
+
 # Runtime artifacts (created/managed by the server)
 output/
 presets.json

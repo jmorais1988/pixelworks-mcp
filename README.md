@@ -107,7 +107,7 @@ resolve:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ASEPRITE_EXE` | first existing of `%ProgramFiles%\Aseprite\Aseprite.exe`, Steam's `steamapps\common\Aseprite\Aseprite.exe` | Aseprite executable used for the headless CLI |
+| `ASEPRITE_EXE` | first existing of `%ProgramFiles%\Aseprite\Aseprite.exe`, `%ProgramFiles(x86)%\Steam\steamapps\common\Aseprite\Aseprite.exe`, `%ProgramFiles(x86)%\Aseprite\Aseprite.exe` | Aseprite executable used for the headless CLI |
 | `RD_EXTENSION_DIR` | `%APPDATA%\Aseprite\extensions\RetroDiffusion` | Retro Diffusion extension folder (backend, venv, models, LoRAs) |
 | `RD_WS_URL` | `ws://127.0.0.1:8765` | Local RD backend WebSocket endpoint |
 | `RD_OUT_DIR` | `<package>\output\` (auto-created) | Where generated images/sprites are saved |
@@ -149,7 +149,7 @@ this step is only a starting seed.
 
 Copy the bundled plugin into Krita's pykrita folder and enable it:
 
-```
+```bat
 # Windows
 copy krita-plugin\kritamcp.desktop  %APPDATA%\krita\pykrita\
 xcopy krita-plugin\kritamcp         %APPDATA%\krita\pykrita\kritamcp\ /E /I
