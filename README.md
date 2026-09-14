@@ -63,12 +63,21 @@ subsystems are probed lazily and gate themselves.
 
 ## Installation
 
-### 1. Clone and set up a Python virtual environment
+### 1. Get the code and set up a Python virtual environment
+
+Either clone:
 
 ```bash
 git clone https://github.com/jmorais1988/pixelworks-mcp.git pixelworks
 cd pixelworks
 ```
+
+or download `pixelworks-mcp-<version>.zip` from the
+[Releases page](https://github.com/jmorais1988/pixelworks-mcp/releases),
+extract it, and `cd` into the extracted folder (a `.sha256` file is
+published alongside each zip if you want to verify the download). The zip
+contains exactly the files listed under *Repository layout*; the steps
+below are identical for both.
 
 A virtual environment (venv) keeps pixelworks' dependencies isolated from your
 system Python:
@@ -484,6 +493,7 @@ krita-plugin/              the extended Krita MCP bridge plugin (kritamcp
 README.md                  this file — installation & client setup
 LICENSE                    MIT license
 .gitignore                 ignores .venv/, output/, presets.json, logs
+.github/workflows/         release.yml — builds the Releases zip on every v* tag
 ```
 
 Runtime artifacts are created on demand: `output/` (generated files,

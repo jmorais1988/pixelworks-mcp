@@ -152,6 +152,27 @@ with fallback, dynamic class bases, `V2_DISPATCH` hook).
 
 Each ends with `ALL GREEN` / exit 0 or a `FAILED:` list / exit 1.
 
+## Cutting a release
+
+`.github/workflows/release.yml` runs on any `v*` tag: it checks the tag
+against `version` in `pyproject.toml`, byte-compiles the shipped Python,
+zips the files listed in the README's *Repository layout* (no `.git`,
+`.github`, `.gitignore` or pycache), and publishes a GitHub Release with the
+zip, a `.sha256`, and auto-generated notes.
+
+```bash
+# 1. bump the version
+sed -i 's/^version = .*/version = "1.1.0"/' pyproject.toml
+git commit -am "Release 1.1.0"
+# 2. tag and push (the tag push is what triggers the workflow)
+git tag v1.1.0
+git push origin main v1.1.0
+```
+
+A tag containing `-` (e.g. `v1.1.0-rc1`) is published as a pre-release.
+If the tag and `pyproject.toml` disagree the job fails and no release is
+created; delete the tag (`git push --delete origin vX`), fix, and re-tag.
+
 ## Lineage
 
 - pixel-mcp (Brandon Williams, MIT 2025) — Aseprite-through-AI concept and
