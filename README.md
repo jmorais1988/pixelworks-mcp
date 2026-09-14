@@ -21,8 +21,10 @@ instead of raising, so the rest keeps working and the caller learns what to do
 overview of what is currently up.
 
 > Developed and tested on Windows 10/11 with Python 3.12, Aseprite 1.3.18 and
-> Retro Diffusion extension 15.0.0. The headless-console plumbing is
-> Windows-specific; other platforms are untested.
+> Retro Diffusion extension 15.0.0. macOS and Linux are **untested**: the
+> code has no Windows-only dependencies and the platform paths are handled,
+> so it is expected to work — see [macOS / Linux notes](#macos--linux-notes)
+> for what to adjust and what to watch for.
 
 ---
 
@@ -31,16 +33,20 @@ overview of what is currently up.
 1. **Python 3.10+** (developed on 3.12). [Download from python.org](https://www.python.org/downloads/)
    if you don't have it. Make sure to check **"Add Python to PATH"** during
    installation, or know where your Python executable lives.
-2. **Aseprite 1.3+** — required for the `ase_*` tools. Note the path to
-   `Aseprite.exe`.
+2. **Aseprite 1.3+** — required for the `ase_*` tools. Note the path to the
+   executable (`Aseprite.exe` on Windows;
+   `/Applications/Aseprite.app/Contents/MacOS/aseprite` on macOS; the
+   `aseprite` binary from Steam or your own build on Linux).
 3. **Retro Diffusion Aseprite extension v15.0.0** — required for the local
    `rd_*` tools. This is a paid product ([purchase on
    itch.io](https://astropulse.itch.io/retrodiffusion/purchase)) that ships the
    locally run Stable Diffusion finetuned pixel-art model, its own backend
    (`image_server.py`) and a private venv under
    `<extension dir>\stable-diffusion-aseprite\`. Install it through
-   Aseprite normally; the default location on Windows is
-   `%APPDATA%\Aseprite\extensions\RetroDiffusion`.
+   Aseprite normally; the default location is
+   `%APPDATA%\Aseprite\extensions\RetroDiffusion` on Windows,
+   `~/Library/Application Support/Aseprite/extensions/RetroDiffusion` on
+   macOS and `~/.config/aseprite/extensions/RetroDiffusion` on Linux.
 4. *Optional* — the **online version** of Retro Diffusion
    (retrodiffusion.ai) is supported as an alternative to the local model: a
    **retrodiffusion.ai API key** enables the four cloud tools
@@ -109,8 +115,8 @@ resolve:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ASEPRITE_EXE` | first existing of `%ProgramFiles%\Aseprite\Aseprite.exe`, `%ProgramFiles(x86)%\Steam\steamapps\common\Aseprite\Aseprite.exe`, `%ProgramFiles(x86)%\Aseprite\Aseprite.exe` | Aseprite executable used for the headless CLI |
-| `RD_EXTENSION_DIR` | `%APPDATA%\Aseprite\extensions\RetroDiffusion` | Retro Diffusion extension folder (backend, venv, models, LoRAs) |
+| `ASEPRITE_EXE` | Windows: first existing of `%ProgramFiles%\Aseprite\Aseprite.exe`, `%ProgramFiles(x86)%\Steam\steamapps\common\Aseprite\Aseprite.exe`, `%ProgramFiles(x86)%\Aseprite\Aseprite.exe`. macOS: `/Applications/Aseprite.app/Contents/MacOS/aseprite`. Linux: `/usr/bin/aseprite`, `/usr/local/bin/aseprite` | Aseprite executable used for the headless CLI |
+| `RD_EXTENSION_DIR` | Windows: `%APPDATA%\Aseprite\extensions\RetroDiffusion`. macOS: `~/Library/Application Support/Aseprite/extensions/RetroDiffusion`. Linux: `~/.config/aseprite/extensions/RetroDiffusion` | Retro Diffusion extension folder (backend, venv, models, LoRAs) |
 | `RD_WS_URL` | `ws://127.0.0.1:8765` | Local RD backend WebSocket endpoint |
 | `RD_OUT_DIR` | `<package>\output\` (auto-created) | Where generated images/sprites are saved |
 | `RD_PRESET_FILE` | `<package>\presets.json` | Preset store for `rd_preset_*` |
@@ -121,16 +127,19 @@ resolve:
 Alternatively, edit the configuration block near the top of `server.py`
 (`RD_URL`, `EXT_DIR`, `ASEPRITE_EXE`, …) directly.
 
-### 3. Apply the headless patch to the RD extension (Windows, once)
+### 3. Apply the headless patch to the RD extension (once)
 
 ```bash
+# Windows
 .venv\Scripts\python reapply_headless_patch.py
-# (set RD_EXTENSION_DIR first if the extension is not under %APPDATA%)
+# macOS/Linux (the script's built-in default is the Windows path, so point it explicitly)
+RD_EXTENSION_DIR="$HOME/Library/Application Support/Aseprite/extensions/RetroDiffusion" .venv/bin/python reapply_headless_patch.py   # macOS
+RD_EXTENSION_DIR="$HOME/.config/aseprite/extensions/RetroDiffusion" .venv/bin/python reapply_headless_patch.py                       # Linux
 ```
 
 The RD extension shells out on *every* Aseprite start — including the headless
-batch spawns this server performs — which flashes visible console windows. The
-patch prepends an env-guarded no-op for `os.execute` to `extension.lua`
+batch spawns this server performs — which flashes visible console windows on
+Windows and prints harmless `rm`/`del` errors elsewhere. The patch prepends an env-guarded no-op for `os.execute` to `extension.lua`
 (active only when `RD_MCP_HEADLESS=1`, which the server sets for its batch
 spawns; interactive Aseprite sessions are unaffected). The script is idempotent.
 **Re-run it after every Retro Diffusion extension update.**
@@ -152,10 +161,18 @@ this step is only a starting seed.
 Copy the bundled plugin into Krita's pykrita folder and enable it:
 
 ```bat
-# Windows
+:: Windows
 copy krita-plugin\kritamcp.desktop  %APPDATA%\krita\pykrita\
 xcopy krita-plugin\kritamcp         %APPDATA%\krita\pykrita\kritamcp\ /E /I
-# macOS/Linux: same two items into ~/.local/share/krita/pykrita/
+```
+
+```bash
+# Linux (also Flatpak: use ~/.var/app/org.kde.krita/data/krita/pykrita/)
+mkdir -p ~/.local/share/krita/pykrita
+cp -r krita-plugin/kritamcp krita-plugin/kritamcp.desktop ~/.local/share/krita/pykrita/
+# macOS
+mkdir -p ~/Library/Application\ Support/krita/pykrita
+cp -r krita-plugin/kritamcp krita-plugin/kritamcp.desktop ~/Library/Application\ Support/krita/pykrita/
 ```
 
 Then start Krita → *Settings → Configure Krita… → Python Plugin Manager* →
@@ -186,7 +203,11 @@ venv's Python. Three rules apply to all of them:
    `<PIXELWORKS>` below stands for the folder you cloned into, e.g.
    `C:\Tools\pixelworks`. In JSON and TOML basic strings backslashes must be
    doubled (`C:\\Tools\\pixelworks`); YAML single-quoted strings and TOML
-   literal strings (`'...'`) take them as-is.
+   literal strings (`'...'`) take them as-is. On **macOS/Linux** the
+   interpreter is `<PIXELWORKS>/.venv/bin/python` and paths use forward
+   slashes with no escaping — e.g.
+   `"command": "/Users/you/pixelworks/.venv/bin/python"`; the `env` value
+   would be the Aseprite binary from the table above.
 2. **`env` is optional** — add only the variables whose default (see
    *Configure paths*) does not match your machine. The commonest one is
    `ASEPRITE_EXE` when Aseprite is not under *Program Files* / Steam.
@@ -373,11 +394,50 @@ subsystems, so each needs its subsystem up:
 .venv\Scripts\python tests\test_workbench.py      # Aseprite basics (canvas, draw, palette, frames, export)
 .venv\Scripts\python tests\test_v4_expansion.py   # 40-step Aseprite suite (layers, cels, slices, tilemaps, ...)
 .venv\Scripts\python tests\test_krita_v2.py       # 32-step Krita battery (Krita running with the bridge plugin)
+# macOS/Linux: .venv/bin/python tests/<suite>.py
 ```
 
 Each prints `PASS`/`FAIL` per step and ends with `ALL GREEN` (exit 0) or a
 `FAILED:` list (exit 1). Artifacts land under `output/`. See
 `DEVELOPMENT.md` for protocol notes and known traps.
+
+## macOS / Linux notes
+
+> **Untested.** Everything below is what *should* work based on the code:
+> the server is pure Python, all Windows-only calls (`CREATE_NO_WINDOW`,
+> `STARTUPINFO`) are guarded behind `sys.platform == "win32"`, and the
+> default paths above have macOS/Linux branches. It has simply never been
+> run outside Windows. If you try it, please open an issue with the outcome
+> either way.
+
+- **Aseprite** — the `ase_*` tools only need a working `<aseprite> --batch`.
+  Set `ASEPRITE_EXE` to the real binary (the macOS default resolves inside
+  the `.app` bundle; Steam on Linux puts it under
+  `~/.steam/steam/steamapps/common/Aseprite/aseprite`). `ase_status` runs a
+  probe batch and tells you if it works.
+- **Retro Diffusion (local)** — the extension is sold for Windows, macOS
+  and Linux (its author notes Linux support is "not guaranteed" and tested
+  only on Ubuntu, Mint and Fedora); the server launches its backend with `<extension>/stable-diffusion-aseprite/venv/bin/python`
+  and applies the same UTF-8 env. The `rd_start_backend` "no console window"
+  behavior is a no-op there. If the extension's venv lives elsewhere on your
+  platform, start the backend from the Retro Diffusion dialog in Aseprite
+  instead — the WebSocket protocol is identical.
+- **Headless patch** — needed on every platform (the extension's init shells
+  out on each start); pass `RD_EXTENSION_DIR` as shown in step 3.
+- **Krita** — the bridge plugin is plain PyQt/libkis with no platform code;
+  it binds `localhost:5678` the same way. Flatpak Krita needs the plugin under
+  `~/.var/app/org.kde.krita/data/krita/pykrita/` and may not see
+  `localhost` from outside the sandbox without `--share=network` (the
+  default permits it).
+- **Case-sensitive filesystems** — the code opens files with the exact
+  names it writes, and the repo's own filenames are consistent, so no issue
+  is expected; but the RD extension's folder/model names must match what the
+  extension itself uses.
+- **Paths in client configs** — forward slashes, no escaping, and
+  `.venv/bin/python` (see the client section). Claude Desktop's config on
+  macOS is `~/Library/Application Support/Claude/claude_desktop_config.json`;
+  the other clients use the same `~/.codex`, `~/.gemini`, `~/.claude.json`,
+  `~/.dsh` locations as on Windows.
 
 ## Troubleshooting
 

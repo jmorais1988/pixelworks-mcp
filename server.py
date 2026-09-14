@@ -114,7 +114,12 @@ EXT_DIR = Path(os.environ.get("RD_EXTENSION_DIR") or _default_ext_dir())
 SD_DIR = EXT_DIR / "stable-diffusion-aseprite"
 MODEL_DIR = SD_DIR / "models" / "base"
 LORA_DIR = SD_DIR / "models" / "lora"
-VENV_PY = SD_DIR / "venv" / "Scripts" / "python.exe"
+# The RD extension's private venv interpreter (used by rd_start_backend).
+VENV_PY = (
+    SD_DIR / "venv" / "Scripts" / "python.exe"
+    if sys.platform == "win32"
+    else SD_DIR / "venv" / "bin" / "python"
+)
 ASEPRITE_EXE = Path(os.environ.get("ASEPRITE_EXE") or _default_aseprite_exe())
 OUT_DIR = Path(os.environ.get("RD_OUT_DIR", str(Path(__file__).parent / "output")))
 PRESET_FILE = Path(os.environ.get("RD_PRESET_FILE", str(Path(__file__).parent / "presets.json")))

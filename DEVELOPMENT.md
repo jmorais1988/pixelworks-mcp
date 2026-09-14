@@ -55,7 +55,13 @@ subsystem-dependent tool at import time via `await mcp.list_tools()` +
 - `rd_prompt_extract` / `rd_translate` must return dicts (MCP schema
   validation rejects bare strings).
 
-## Headless behavior (Windows)
+## Headless behavior (Windows; other platforms untested)
+
+Everything Windows-specific is guarded by `sys.platform == "win32"`:
+`_CREATE_NO_WINDOW`, `_hide_startup()`, the `%APPDATA%` / `Program Files`
+defaults and `VENV_PY` (`venv/Scripts/python.exe` vs `venv/bin/python`).
+On macOS/Linux those collapse to no-ops / POSIX paths; nothing else in the
+server is platform-dependent, but no run has been done there.
 
 - Every child process (Aseprite batch, backend launch) uses
   `CREATE_NO_WINDOW` + `STARTUPINFO(SW_HIDE)`.
