@@ -1,7 +1,7 @@
 # pixelworks — developer notes
 
 Protocol details, headless plumbing and the traps discovered while building
-this server. User-facing setup lives in `Readme.md`.
+this server. User-facing setup lives in `README.md`.
 
 ## Architecture in one paragraph
 
@@ -151,4 +151,4 @@ Each ends with `ALL GREEN` / exit 0 or a `FAILED:` list / exit 1.
 - aseprite-mcp (Divyansh Singh, MIT 2024) — the v4 expansion (layers, cels,
   slices, tilemaps, analysis, export, `ase_run_lua`) and shared Lua idioms.
 
-See `Readme.md` → Acknowledgements for the full notices.
+See `README.md` → Acknowledgements for the full notices.

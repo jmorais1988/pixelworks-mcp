@@ -2,7 +2,7 @@
 """pixelworks - MCP server for pixel-art toolchains: a full-coverage bridge to
 the Retro Diffusion local backend (the one inside the Retro Diffusion Aseprite
 extension), the Aseprite headless-CLI workbench (ase_*) and the Krita bridge
-plugin (krita_*). This header lists the Retro Diffusion coverage; see Readme.md
+plugin (krita_*). This header lists the Retro Diffusion coverage; see README.md
 for the complete tool families.
 
 Speaks the extension v15.0.0 WebSocket JSON protocol on ws://127.0.0.1:8765

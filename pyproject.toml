@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pixelworks-mcp"
 version = "1.0.0"
 description = "MCP server for pixel-art toolchains: Retro Diffusion, Aseprite (headless CLI) and Krita in one tool surface"
-readme = "Readme.md"
+readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "João Morais" }]
 requires-python = ">=3.10"

@@ -286,7 +286,7 @@ presets.example.json       optional seed for presets.json
 krita-plugin/              the extended Krita MCP bridge plugin (kritamcp
                            package + .desktop manifest) — install into
                            %APPDATA%/krita/pykrita/ for the krita_* tools
-Readme.md                  this file — installation & client setup
+README.md                  this file — installation & client setup
 LICENSE                    MIT license
 .gitignore                 ignores .venv/, output/, presets.json, logs
 ```
