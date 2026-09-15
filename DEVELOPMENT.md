@@ -106,9 +106,82 @@ server is platform-dependent, but no run has been done there.
 - Python 3.12 (PEP 701) f-strings parse a Lua brace-quote concat as a
   replacement field: braces inside Lua string literals embedded in f-strings
   must be doubled, or the tool silently prints tuple garbage.
-- Agents habitually pass `layer_name` to drawing tools whose parameter is
-  `layer`; the ase gate wrapper accepts it as an alias and turns stray
-  `TypeError`s into `{"ok": false, "accepted_params": [...]}`.
+## Tool dispatch layer (gates, aliases, pre-checks)
+
+Every gated tool is wrapped by `_call_guarded`, which applies three checks in
+a fixed order — the order is the contract, and `tests/test_gates.py` pins it:
+
+1. **Argument binding** (`_binding_error`). A misspelled parameter is a caller
+   error whatever the backend is doing, so it is reported first and costs no
+   subprocess or socket. Returns `{"ok": false, "accepted_params": [...],
+   "unexpected_params": [...], "did_you_mean": {...}}`. Applied to **all three**
+   subsystems — `krita_*` and `rd_*` previously raised a bare `TypeError` that
+   surfaced as a hard MCP tool error.
+2. **Availability gate**. When a subsystem is missing, that is the one fact
+   worth reporting, so it outranks any path complaint.
+3. **Sprite pre-check** (`_sprite_precheck`). Runs last, so "sprite not found"
+   is only raised when Aseprite could actually have opened the file. Without
+   it a bad path reached Lua, where `app.open` returns nil and the script dies
+   with `attempt to index a nil value (local 'spr')` and rc=4294967295.
+
+Binding is validated with `inspect.signature().bind()` *before* the call, so a
+`TypeError` raised **inside** a tool body still propagates — the old wrapper
+caught `TypeError` around the call and could disguise a real defect as a
+"call it differently" hint.
+
+Alias rules (`_PARAM_ALIASES`), deliberately conservative — a wrong guess here
+corrupts data silently, which is worse than an error message:
+
+- `layer_name` ↔ `layer` both ways (agents mix the two spellings constantly).
+- Generic names (`path`, `file_path`, `filename`) resolve to whatever single
+  path parameter the tool exposes.
+- **Never** `image_path` ↔ `sprite_path`: they name different kinds of file,
+  and the drawing tools save in place, so rewriting one into the other could
+  paint over a PNG the caller meant to import.
+- **Never** `scale` → `max_side`: `scale` is a real pixel multiplier on
+  `ase_export_tag` / `ase_render_onion_skin`, while `max_side` is a clamp.
+- A tool exposing two path parameters (`ase_save_as`, `ase_export_*`,
+  `ase_import_layer`, `rd_quantize`, …) is ambiguous, so path synonyms are
+  **not** resolved for it — guessing could write output over the input sprite.
+
+`sprite_path` always denotes an **existing** sprite (`ase_create_canvas`, the
+only tool that creates one, calls it `out_path`). `test_gates.py` asserts that
+invariant so a future tool cannot quietly break the pre-check.
+
+`ase_select_all` reaches the CLI through `_dump_cel`, so it is in `_ASE_GATED`.
+`ase_status` stays ungated on purpose: it is the availability probe and must
+run precisely when Aseprite is absent.
+
+### Availability caching
+
+Availability is cached so the gate does not reprobe on every call (RD 30s,
+Aseprite 60s). Anything that *changes* availability must clear that cache:
+`rd_start_backend` and `rd_stop_backend` call `_invalidate_rd_cache()`.
+Without it, stopping the backend leaves a stale "up" reading and the gate
+forwards the next call to a dead socket — the caller gets a raw
+`[WinError 1225] The remote computer refused the network connection` instead
+of the `{"available": false, "subsystem": "retro_diffusion", ...}` payload the
+gate exists to provide. `test_gates.py` §8 pins both the helper and its use.
+
+## Aseprite executable discovery
+
+`_aseprite_candidates()` orders: uninstall registry → `PATH` → `Aseprite\` under
+*Program Files*, *Program Files (x86)* and the root of every fixed drive →
+Steam libraries parsed from `libraryfolders.vdf`. The old probe only looked at
+`%ProgramFiles%` on the system drive plus one hardcoded Steam path, so a
+perfectly good install on `D:` reported "Aseprite executable not found".
+
+Registry parsing takes `DisplayIcon` only when it ends in `.exe` — Steam points
+it at an `.ico`, which would otherwise yield a fabricated path. When several
+installs exist the registry order wins; set `ASEPRITE_EXE` to pin one. (A dev
+box with both a standalone `D:\Program Files\Aseprite` and a Steam
+`C:\SteamLibrary\...\Aseprite` resolves to the Steam copy by default.)
+
+No candidate list can be exhaustive — Aseprite may sit in a portable folder or
+any custom path — so `ase_status` returns `searched` (the probed paths) and
+`searched_count` alongside `available: false`. That turns "not found" into an
+actionable message instead of naming one guessed path the user never chose.
+`ASEPRITE_EXE` and `PATH` remain the escape hatches.
 
 ## Krita bridge notes (libkis, Krita 5.3.3)
 
@@ -144,11 +217,16 @@ with fallback, dynamic class bases, `V2_DISPATCH` hook).
 
 ## Tests
 
-`tests/` — live integration batteries, direct-import style (no MCP client):
+`tests/` — direct-import style (no MCP client):
 
-- `test_workbench.py` — Aseprite basics.
-- `test_v4_expansion.py` — 40-step suite over the ported aseprite-mcp tools.
-- `test_krita_v2.py` — 32-step battery against a running Krita.
+- `test_gates.py` — 51-check **headless** battery over the tool dispatch layer
+  (argument binding, aliases, sprite pre-checks, gate coverage, availability
+  cache invalidation, Aseprite discovery). Needs no Aseprite, Krita or RD backend, so it runs in CI and on
+  any dev box. Set `PIXELWORKS_EXPECT_ASEPRITE=1` to additionally assert that
+  discovery resolves to a real executable.
+- `test_workbench.py` — Aseprite basics (live).
+- `test_v4_expansion.py` — 40-step suite over the ported aseprite-mcp tools (live).
+- `test_krita_v2.py` — 32-step battery against a running Krita (live).
 
 Each ends with `ALL GREEN` / exit 0 or a `FAILED:` list / exit 1.
 

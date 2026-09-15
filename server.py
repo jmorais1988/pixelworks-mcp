@@ -54,11 +54,11 @@ import math
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
-import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -89,25 +89,154 @@ def _default_ext_dir() -> Path:
     return Path.home() / ".config" / "aseprite" / "extensions" / "RetroDiffusion"
 
 
-def _default_aseprite_exe() -> Path:
-    """First existing Aseprite executable among the usual install locations
-    (falls back to the first candidate so error messages stay meaningful)."""
+def _registry_aseprite_paths() -> List[Path]:
+    """Aseprite executables recorded in the Windows uninstall registry.
+
+    The most reliable source on Windows: it reports the real install location
+    whatever drive it lives on, for both the standalone installer and the
+    Steam build. Returns [] on non-Windows or when nothing is registered.
+    """
+    if sys.platform != "win32":
+        return []
+    try:
+        import winreg
+    except ImportError:
+        return []
+    found: List[Path] = []
+    roots = (
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+    )
+    for hive, subkey in roots:
+        try:
+            key = winreg.OpenKey(hive, subkey)
+        except OSError:
+            continue
+        with key:
+            for i in range(winreg.QueryInfoKey(key)[0]):
+                try:
+                    with winreg.OpenKey(key, winreg.EnumKey(key, i)) as sub:
+                        name = str(winreg.QueryValueEx(sub, "DisplayName")[0])
+                        if "aseprite" not in name.lower():
+                            continue
+                        for value in ("InstallLocation", "DisplayIcon"):
+                            try:
+                                raw = str(winreg.QueryValueEx(sub, value)[0]).strip().strip('"')
+                            except OSError:
+                                continue
+                            if not raw:
+                                continue
+                            # DisplayIcon names the exe directly, sometimes with a
+                            # ",0" icon index - but Steam points it at an .ico, so
+                            # only an .exe is trusted. InstallLocation is a folder.
+                            cand = Path(raw.split(",")[0])
+                            if value == "InstallLocation":
+                                cand = cand / "Aseprite.exe"
+                            elif cand.suffix.lower() != ".exe":
+                                continue
+                            found.append(cand)
+                except OSError:
+                    continue
+    return found
+
+
+def _steam_library_paths(vdf_text: str) -> List[Path]:
+    """Steam library roots declared in a libraryfolders.vdf document.
+
+    Steam spreads games across drives, so the single hardcoded Program Files
+    (x86) path misses most installs. Parsed leniently: the file is Valve's own
+    format and a malformed one must never break server startup.
+    """
+    paths: List[Path] = []
+    for match in re.finditer(r'"path"\s*"([^"]+)"', vdf_text or ""):
+        raw = match.group(1).replace("\\\\", "\\")
+        if raw:
+            paths.append(Path(raw))
+    return paths
+
+
+def _aseprite_candidates() -> List[Path]:
+    """Every plausible Aseprite executable location, best guess first.
+
+    Ordered: registry (authoritative) -> PATH -> conventional install dirs on
+    every fixed drive -> Steam libraries. De-duplicated, order preserved.
+    """
+    candidates: List[Path] = list(_registry_aseprite_paths())
+
+    exe = "Aseprite.exe" if sys.platform == "win32" else "aseprite"
+    on_path = shutil.which(exe)
+    if on_path:
+        candidates.append(Path(on_path))
+
     if sys.platform == "win32":
         pf = os.environ.get("ProgramFiles", r"C:\Program Files")
         pf86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-        candidates = [
-            Path(pf) / "Aseprite" / "Aseprite.exe",
-            Path(pf86) / "Steam" / "steamapps" / "common" / "Aseprite" / "Aseprite.exe",
-            Path(pf86) / "Aseprite" / "Aseprite.exe",
-        ]
+        # Aseprite is frequently installed to a "Program Files" on a data
+        # drive; probing only the system drive reports "not installed" on a
+        # machine where it plainly is.
+        roots = [Path(pf), Path(pf86)]
+        for drive in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+            root = Path(f"{drive}:\\")
+            if not root.exists():
+                continue
+            roots += [root / "Program Files", root / "Program Files (x86)", root]
+        for root in roots:
+            candidates.append(root / "Aseprite" / "Aseprite.exe")
+            candidates.append(root / "Steam" / "steamapps" / "common" / "Aseprite" / "Aseprite.exe")
+            candidates.append(root / "SteamLibrary" / "steamapps" / "common" / "Aseprite" / "Aseprite.exe")
+        candidates.append(Path(os.environ.get("LOCALAPPDATA", "")) / "Aseprite" / "Aseprite.exe")
+
+        # Steam's own library index: the only way to find non-default libraries.
+        steam_roots = [Path(pf86) / "Steam", Path(pf) / "Steam"]
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+                steam_roots.insert(0, Path(str(winreg.QueryValueEx(key, "SteamPath")[0])))
+        except (ImportError, OSError):
+            pass
+        for steam in steam_roots:
+            vdf = steam / "steamapps" / "libraryfolders.vdf"
+            try:
+                text = vdf.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for lib in _steam_library_paths(text):
+                candidates.append(lib / "steamapps" / "common" / "Aseprite" / "Aseprite.exe")
     elif sys.platform == "darwin":
-        candidates = [Path("/Applications/Aseprite.app/Contents/MacOS/aseprite")]
+        candidates += [
+            Path("/Applications/Aseprite.app/Contents/MacOS/aseprite"),
+            Path.home() / "Applications" / "Aseprite.app" / "Contents" / "MacOS" / "aseprite",
+            Path("/Applications/Aseprite.app/Contents/Resources/aseprite"),
+        ]
     else:
-        candidates = [Path("/usr/bin/aseprite"), Path("/usr/local/bin/aseprite")]
+        candidates += [
+            Path("/usr/bin/aseprite"),
+            Path("/usr/local/bin/aseprite"),
+            Path("/var/lib/flatpak/exports/bin/org.aseprite.Aseprite"),
+            Path.home() / ".steam" / "steam" / "steamapps" / "common" / "Aseprite" / "aseprite",
+            Path.home() / ".local" / "share" / "Steam" / "steamapps" / "common" / "Aseprite" / "aseprite",
+        ]
+
+    seen: Dict[str, None] = {}
     for c in candidates:
-        if c.exists():
-            return c
-    return candidates[0]
+        key = str(c)
+        if key and key not in seen:
+            seen[key] = None
+    return [Path(k) for k in seen]
+
+
+def _default_aseprite_exe() -> Path:
+    """First existing Aseprite executable among the usual install locations
+    (falls back to the first candidate so error messages stay meaningful)."""
+    candidates = _aseprite_candidates()
+    for c in candidates:
+        try:
+            if c.is_file():
+                return c
+        except OSError:
+            continue
+    return candidates[0] if candidates else Path("Aseprite.exe")
 
 
 EXT_DIR = Path(os.environ.get("RD_EXTENSION_DIR") or _default_ext_dir())
@@ -583,12 +712,25 @@ async def rd_status(handshake: bool = False) -> Dict[str, Any]:
         return {"backend": "down", "error": str(e), "url": RD_URL, "version": RD_VERSION}
 
 
+def _invalidate_rd_cache() -> None:
+    """Drop the cached RD availability reading.
+
+    Availability is cached so the gate does not reconnect on every call, but
+    starting or stopping the backend changes that answer immediately. Without
+    this, the gate trusts a stale "up" for up to 30s and forwards calls to a
+    socket that is already gone - the caller then gets a raw connection error
+    instead of the friendly {"available": false, ...} payload.
+    """
+    _RD_CACHE.update(ts=0.0, ok=None, detail="")
+
+
 @mcp.tool()
 async def rd_start_backend() -> Dict[str, Any]:
     """Start the Retro Diffusion local backend (image_server.py in the extension venv) if not already listening.
 
     Headless: no console window, UTF-8 IO env, logs to mcp-backend.log.
     """
+    _invalidate_rd_cache()
     st = await rd_status()
     if st.get("backend") == "up":
         return {"started": False, "reason": "already running", **st}
@@ -614,6 +756,7 @@ async def rd_start_backend() -> Dict[str, Any]:
         await asyncio.sleep(2)
         st = await rd_status()
         if st.get("backend") == "up":
+            _invalidate_rd_cache()
             return {"started": True, "log": str(log_path), **st}
     return {"started": False, "error": "backend did not come up within 240s", "log": str(log_path)}
 
@@ -627,6 +770,9 @@ async def rd_stop_backend() -> Dict[str, Any]:
         return {"stopped": True}
     except Exception as e:
         return {"stopped": False, "error": str(e)}
+    finally:
+        # The backend is going away either way; never leave a stale "up".
+        _invalidate_rd_cache()
 
 
 @mcp.tool()
@@ -4502,9 +4648,27 @@ def _image_content(path: str, max_side: int) -> MCPImage:
 def ase_status() -> Dict[str, Any]:
     """Check whether the headless Aseprite CLI is available (executable present
     and a probe batch run succeeds). Cached 60s; file-touching ase_* tools gate
-    on this and report {available:false,...} instead of crashing when missing."""
+    on this and report {available:false,...} instead of crashing when missing.
+
+    When the executable cannot be found the result also carries the locations
+    that were probed, so an install in a custom folder can be pointed at
+    directly instead of guessed."""
     ok, detail = _ase_available(force=True)
-    return {"available": ok, "exe": str(ASEPRITE_EXE), "detail": detail}
+    res: Dict[str, Any] = {"available": ok, "exe": str(ASEPRITE_EXE), "detail": detail}
+    if not ok and not ASEPRITE_EXE.exists():
+        # Aseprite installs anywhere (portable copies, custom folders, any
+        # drive), so no candidate list can be exhaustive. Showing the probed
+        # paths turns "not found" into an actionable message.
+        probed = [str(c) for c in _aseprite_candidates()]
+        res["searched"] = probed[:40]
+        res["searched_count"] = len(probed)
+        res["hint"] = (
+            "Aseprite was not found in any standard location. Set ASEPRITE_EXE "
+            "to the full path of the executable (e.g. "
+            r"ASEPRITE_EXE=D:\Tools\Aseprite\Aseprite.exe), or add its folder "
+            "to PATH. Steam installs are detected via libraryfolders.vdf."
+        )
+    return res
 
 
 @mcp.tool()
@@ -5104,6 +5268,176 @@ def krita_run_python(code: str) -> Dict[str, Any]:
     return _krita_send("run_python", {"code": code}, timeout=120.0)
 
 
+# ---------------------------------------------------------------------------
+# Tool dispatch helpers (argument binding, aliases, sprite pre-checks)
+# ---------------------------------------------------------------------------
+# Agents call these tools by name with hand-written arguments, so the two most
+# common failures are a misspelled parameter and a path that does not exist.
+# Both used to surface as raw exceptions: an unhandled TypeError, or a Lua
+# "attempt to index a nil value (local 'spr')" after Aseprite refused to open
+# the file. Handling them here keeps every tool's own body free of boilerplate.
+
+def _param_names(fn: Any) -> List[str]:
+    """Parameter names of *fn*, or [] when it has no inspectable signature."""
+    try:
+        return list(inspect.signature(fn).parameters)
+    except (TypeError, ValueError):
+        return []
+
+
+# Synonyms an agent plausibly reaches for, mapped to the canonical spelling.
+# Deliberately conservative: only names meaning exactly the same thing. A
+# synonym is applied solely when the target parameter exists, the caller did
+# not already supply it, and the mapping is unambiguous for that signature.
+# 'scale' is absent on purpose - it is a real parameter on ase_export_tag and
+# ase_render_onion_skin (a pixel multiplier) and would silently corrupt
+# ase_view_frame's max_side (a clamp in pixels).
+# 'image_path' (a raster file) and 'sprite_path' (an .aseprite document) are
+# NOT interchangeable: the drawing tools save in place, so rewriting one into
+# the other could paint over a PNG the caller meant to import. Only generic
+# names - which carry no file-kind meaning - resolve to a specific parameter.
+_PARAM_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "layer_name": ("layer",),
+    "layer": ("layer_name",),
+    "path": ("sprite_path", "image_path", "out_path", "output_path"),
+    "file_path": ("sprite_path", "image_path", "out_path", "output_path"),
+    "filename": ("output_path", "out_path", "path"),
+    "sprite_path": ("out_path",),
+    "out_path": ("output_path",),
+    "output_path": ("out_path",),
+}
+
+# Parameters naming a file. A tool exposing more than one of these is
+# ambiguous, so path synonyms are not resolved for it - guessing could write
+# output over the input sprite.
+_PATH_PARAMS = frozenset({
+    "path", "file_path", "sprite_path", "image_path",
+    "out_path", "output_path", "reference_path",
+})
+
+
+def _resolve_aliases(params: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Rename known synonyms in *kwargs* to the parameter names *params* accepts.
+
+    Returns a new mapping; unknown keys are passed through untouched so the
+    binding check can still report them. An explicit value for the canonical
+    name always wins over a value supplied under an alias.
+    """
+    accepted = set(params)
+    out = dict(kwargs)
+    path_targets = accepted & _PATH_PARAMS
+    for supplied in list(out):
+        if supplied in accepted:
+            continue
+        for target in _PARAM_ALIASES.get(supplied, ()):
+            if target not in accepted or target in out:
+                continue
+            # Only rename a path synonym when the destination is unambiguous.
+            if target in _PATH_PARAMS and len(path_targets) > 1:
+                continue
+            out[target] = out.pop(supplied)
+            break
+    return out
+
+
+def _binding_error(fn: Any, args: Any, kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Describe why *args*/*kwargs* cannot bind to *fn*, or None when they can.
+
+    Checked up front so a caller's mistake never reaches the tool body, and so
+    a TypeError raised *inside* a tool is never mistaken for a bad call.
+    """
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return None
+    try:
+        sig.bind(*args, **kwargs)
+        return None
+    except TypeError as exc:
+        accepted = sorted(sig.parameters)
+        unexpected = sorted(k for k in kwargs if k not in sig.parameters)
+        err: Dict[str, Any] = {
+            "ok": False,
+            "error": f"TypeError: {exc}",
+            "accepted_params": accepted,
+            "hint": "Call again using only the names in accepted_params.",
+        }
+        if unexpected:
+            err["unexpected_params"] = unexpected
+            suggestions = {
+                bad: [t for t in _PARAM_ALIASES.get(bad, ()) if t in sig.parameters]
+                for bad in unexpected
+            }
+            suggestions = {k: v for k, v in suggestions.items() if v}
+            if suggestions:
+                err["did_you_mean"] = suggestions
+        return err
+
+
+def _sprite_precheck(fn: Any, args: Any, kwargs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Reject a missing sprite before Aseprite is launched.
+
+    Every ase_* tool takes an EXISTING sprite as 'sprite_path' (the one tool
+    that creates a file, ase_create_canvas, names it 'out_path'), so a path
+    that is not on disk is always a caller error. Without this, Aseprite exits
+    with an unsigned status and the Lua script dies indexing a nil sprite.
+    """
+    names = _param_names(fn)
+    if "sprite_path" not in names:
+        return None
+    if "sprite_path" in kwargs:
+        value = kwargs["sprite_path"]
+    else:
+        idx = names.index("sprite_path")
+        if idx >= len(args):
+            return None
+        value = args[idx]
+    if not isinstance(value, str) or not value:
+        return None
+    if Path(value).exists():
+        return None
+    return {
+        "ok": False,
+        "error": f"sprite not found: {value}",
+        "hint": "Pass the path returned by ase_create_canvas, or create the "
+                "sprite first. Relative paths resolve against the server's "
+                "working directory, not the caller's.",
+    }
+
+
+def _call_guarded(
+    fn: Any,
+    args: Any,
+    kwargs: Dict[str, Any],
+    name: str,
+    gate: Optional[Any] = None,
+) -> Any:
+    """Validate the call, consult the subsystem gate, then invoke *fn*.
+
+    Order matters. Argument binding is checked first: a misspelled parameter
+    is a caller error whatever the backend is doing, and rejecting it costs
+    nothing. The availability gate comes next, because when a subsystem is
+    missing that is the one fact worth reporting. The sprite pre-check runs
+    last, so 'sprite not found' is only ever raised when Aseprite could
+    actually have opened it.
+
+    Only these three conditions are handled; exceptions raised by the tool
+    body propagate untouched so real defects stay visible.
+    """
+    kwargs = _resolve_aliases(_param_names(fn), kwargs)
+    bad = _binding_error(fn, args, kwargs)
+    if bad is not None:
+        return dict(bad, tool=name)
+    if gate is not None:
+        blocked = gate()
+        if blocked is not None:
+            return blocked
+    missing = _sprite_precheck(fn, args, kwargs)
+    if missing is not None:
+        return dict(missing, tool=name)
+    return fn(*args, **kwargs)
+
+
 _RD_GATED = {
     "rd_generate", "rd_img2img", "rd_cn_txt2img", "rd_cn_img2img",
     "rd_neural_transform", "rd_neural_pixelate", "rd_neural_resize", "rd_neural_detail",
@@ -5140,6 +5474,10 @@ _ASE_GATED = {
     "ase_get_tile_at", "ase_get_tilemap_info", "ase_render_onion_skin",
     "ase_compare_frames", "ase_get_color_stats", "ase_export_layers",
     "ase_export_tag", "ase_run_lua",
+    # Reaches the CLI through _dump_cel to size the selection, so it needs the
+    # same gate as the drawing tools. (ase_status stays ungated on purpose: it
+    # is the availability probe itself and must run when Aseprite is absent.)
+    "ase_select_all",
 }
 
 
@@ -5161,16 +5499,27 @@ _KRITA_GATED = {
 
 
 def _install_gates() -> None:
+    """Wrap every gated tool with subsystem availability + argument validation.
+
+    Argument checks run BEFORE the availability probe: a misspelled parameter
+    is a caller error regardless of whether Aseprite/Krita/RD happen to be
+    running, and reporting it first keeps the message deterministic (and
+    avoids a needless subprocess launch or socket handshake).
+    """
     async def _apply() -> None:
         for tool in await mcp.list_tools():
             name = tool.name
             orig = tool.fn
             if name in _RD_GATED:
-                async def rd_wrapped(*args: Any, _orig: Any = orig, **kwargs: Any) -> Any:
+                async def rd_wrapped(*args: Any, _orig: Any = orig, _name: str = name, **kwargs: Any) -> Any:
+                    ri = kwargs.pop("return_image", False)
+                    kwargs = _resolve_aliases(_param_names(_orig), kwargs)
+                    bad = _binding_error(_orig, args, kwargs)
+                    if bad is not None:
+                        return dict(bad, tool=_name)
                     gate = await _require_rd()
                     if gate is not None:
                         return gate
-                    ri = kwargs.pop("return_image", False)
                     res = await _orig(*args, **kwargs)
                     if ri and isinstance(res, dict):
                         p = _first_image_path(res)
@@ -5179,44 +5528,12 @@ def _install_gates() -> None:
                     return res
                 tool.fn = rd_wrapped
             elif name in _ASE_GATED:
-                try:
-                    sig_params = dict(inspect.signature(orig).parameters)
-                except (TypeError, ValueError):
-                    sig_params = {}
-                def ase_wrapped(
-                    *args: Any,
-                    _orig: Any = orig,
-                    _name: str = name,
-                    _params: Any = sig_params,
-                    _alias_layer: bool = ("layer" in sig_params and "layer_name" not in sig_params),
-                    **kwargs: Any,
-                ) -> Any:
-                    gate = _require_ase()
-                    if gate is not None:
-                        return gate
-                    # Agent callers habitually pass layer_name (the spelling used
-                    # by ase_add_layer & friends) to drawing tools whose
-                    # parameter is `layer`; accept it as an alias.
-                    if _alias_layer and "layer_name" in kwargs and "layer" not in kwargs:
-                        kwargs["layer"] = kwargs.pop("layer_name")
-                    try:
-                        return _orig(*args, **kwargs)
-                    except TypeError as exc:
-                        traceback.print_exc()
-                        return {
-                            "ok": False,
-                            "tool": _name,
-                            "error": f"TypeError: {exc}",
-                            "accepted_params": sorted(_params),
-                            "hint": "Call again using only the names in accepted_params.",
-                        }
+                def ase_wrapped(*args: Any, _orig: Any = orig, _name: str = name, **kwargs: Any) -> Any:
+                    return _call_guarded(_orig, args, kwargs, _name, gate=_require_ase)
                 tool.fn = ase_wrapped
             elif name in _KRITA_GATED:
-                def krita_wrapped(*args: Any, _orig: Any = orig, **kwargs: Any) -> Any:
-                    gate = _require_krita()
-                    if gate is not None:
-                        return gate
-                    return _orig(*args, **kwargs)
+                def krita_wrapped(*args: Any, _orig: Any = orig, _name: str = name, **kwargs: Any) -> Any:
+                    return _call_guarded(_orig, args, kwargs, _name, gate=_require_krita)
                 tool.fn = krita_wrapped
 
     asyncio.run(_apply())

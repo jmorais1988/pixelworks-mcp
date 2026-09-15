@@ -117,14 +117,18 @@ that you can use as the MCP client's `command` instead of
 ### 2. Configure paths (important)
 
 `server.py` reads its configuration from environment variables. The defaults
-match a standard Windows install (Aseprite under *Program Files* or Steam,
-the RD extension under `%APPDATA%`); set the variables when your layout
-differs — `ase_status` / `px_capabilities` tell you which path failed to
-resolve:
+match a standard Windows install (the RD extension under `%APPDATA%`); set the
+variables when your layout differs — `ase_status` / `px_capabilities` tell you
+which path failed to resolve.
+
+Aseprite itself is discovered automatically, including installs outside the
+system drive (a *Program Files* on `D:`, a Steam library on another disk).
+Set `ASEPRITE_EXE` when you have several installs and want to pin one, or when
+Aseprite lives somewhere unusual:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ASEPRITE_EXE` | Windows: first existing of `%ProgramFiles%\Aseprite\Aseprite.exe`, `%ProgramFiles(x86)%\Steam\steamapps\common\Aseprite\Aseprite.exe`, `%ProgramFiles(x86)%\Aseprite\Aseprite.exe`. macOS: `/Applications/Aseprite.app/Contents/MacOS/aseprite`. Linux: `/usr/bin/aseprite`, `/usr/local/bin/aseprite` | Aseprite executable used for the headless CLI |
+| `ASEPRITE_EXE` | Auto-detected: first existing of the Windows uninstall registry entry, `Aseprite` on `PATH`, `Aseprite\Aseprite.exe` under *Program Files* / *Program Files (x86)* / the root of **every** fixed drive, then every Steam library listed in `libraryfolders.vdf`. macOS: `/Applications/Aseprite.app`, `~/Applications`. Linux: `/usr/bin`, `/usr/local/bin`, Flatpak, Steam | Aseprite executable used for the headless CLI. Set it explicitly to pin a specific install when several are present |
 | `RD_EXTENSION_DIR` | Windows: `%APPDATA%\Aseprite\extensions\RetroDiffusion`. macOS: `~/Library/Application Support/Aseprite/extensions/RetroDiffusion`. Linux: `~/.config/aseprite/extensions/RetroDiffusion` | Retro Diffusion extension folder (backend, venv, models, LoRAs) |
 | `RD_WS_URL` | `ws://127.0.0.1:8765` | Local RD backend WebSocket endpoint |
 | `RD_OUT_DIR` | `<package>\output\` (auto-created) | Where generated images/sprites are saved |
@@ -387,8 +391,10 @@ After registering and restarting the client:
 
 1. `px_capabilities` — should list the Aseprite/RD/Krita subsystems and their
    current availability.
-2. `ase_status` — `available: true` when `ASEPRITE_EXE` resolves and a probe
-   batch runs.
+2. `ase_status` — `available: true` when Aseprite resolves and a probe batch
+   runs. If it reports `available: false`, the result also lists the locations
+   that were probed (`searched`) — set `ASEPRITE_EXE` to your executable when
+   it lives somewhere unusual (a portable copy, a custom folder, any drive).
 3. `rd_status` — reachable once the RD backend listens on 8765.
 4. Smoke test: `rd_generate` with a tiny prompt, then
    `ase_create_canvas` + `ase_draw_pixels_hex` + `ase_export_sprite`.
@@ -429,9 +435,19 @@ corrected on the fly.
 
 ## Running the test suites
 
-`tests/` holds the live integration batteries used during development. They
-import `server.py` directly (no MCP client needed) and drive the real
-subsystems, so each needs its subsystem up:
+`tests/` holds the batteries used during development. They import `server.py`
+directly (no MCP client needed).
+
+`test_gates.py` is **headless**: it covers the tool dispatch layer (argument
+binding, parameter aliases, sprite pre-checks, gate coverage, availability
+cache invalidation and Aseprite discovery) and needs no subsystem running, so
+it is the one to run first:
+
+```bash
+.venv\Scripts\python tests\test_gates.py          # 51 checks, no Aseprite/Krita/RD required
+```
+
+The remaining batteries drive the real subsystems, so each needs its own up:
 
 ```bash
 .venv\Scripts\python tests\test_workbench.py      # Aseprite basics (canvas, draw, palette, frames, export)
@@ -518,7 +534,8 @@ server.py                  the MCP server (fastmcp 4, stdio) — everything live
 reapply_headless_patch.py  idempotent patcher for the RD extension's console flashing
 requirements.txt           pinned direct dependencies
 pyproject.toml             optional `pip install .` → `pixelworks` console command
-tests/                     live integration suites (Aseprite workbench, v4 expansion, Krita v2)
+tests/                     headless dispatch battery (test_gates.py) + live integration
+                           suites (Aseprite workbench, v4 expansion, Krita v2)
 examples/                  the mushroom walkthrough above: .aseprite, PNGs, .kra, pipeline.png
 DEVELOPMENT.md             protocol notes, headless behavior, known traps, libkis/Aseprite gotchas
 presets.example.json       optional seed for presets.json
