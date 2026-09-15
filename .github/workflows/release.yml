@@ -45,7 +45,7 @@ jobs:
           # Ship exactly what the README's "Repository layout" lists.
           cp -r server.py reapply_headless_patch.py requirements.txt pyproject.toml \
                 presets.example.json README.md DEVELOPMENT.md LICENSE \
-                krita-plugin tests "dist/$NAME/"
+                krita-plugin tests examples "dist/$NAME/"
           find "dist/$NAME" -name '__pycache__' -type d -prune -exec rm -rf {} +
           (cd dist && zip -rq "$NAME.zip" "$NAME")
           (cd dist && sha256sum "$NAME.zip" > "$NAME.zip.sha256")

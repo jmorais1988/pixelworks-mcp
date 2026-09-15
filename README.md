@@ -393,6 +393,40 @@ After registering and restarting the client:
 4. Smoke test: `rd_generate` with a tiny prompt, then
    `ase_create_canvas` + `ase_draw_pixels_hex` + `ase_export_sprite`.
 
+## Example: one object through all three subsystems
+
+![Mushroom pipeline: Aseprite sprite, RD img2img, RD txt2img, Krita scene](examples/pipeline.png)
+
+The `examples/` folder holds a small end-to-end run that touches every
+subsystem with a single object, a red-capped mushroom. Same prompt and seed
+for the two Retro Diffusion steps, so the difference between them is exactly
+what img2img inherits from the hand-drawn sprite. All outputs are first-try,
+unedited.
+
+| Step | Subsystem | Calls | Result |
+| --- | --- | --- | --- |
+| 1 | **Aseprite only** | `ase_create_canvas(32, 32, "rgb", out_path)` → `ase_draw_pixels_hex` with 521 hand-placed pixels from a 13-color palette (cap highlight/shadow, shaded stem, grass) → `ase_export_sprite` | `mushroom.aseprite`, `1_aseprite_mushroom.png` (32×32) |
+| 2 | **Retro Diffusion img2img** | `rd_img2img(image_paths=[step 1], prompt, strength=55, size_preset="64x64", quality=4, seed=4242, rembg=true)` | `2_rd_img2img_mushroom.png` (64×64) — keeps the silhouette and spot layout, adds painterly texture |
+| 3 | **Retro Diffusion txt2img** | `rd_generate(prompt, size_preset="64x64", quality=4, seed=4242, rembg=true)` — same prompt, no reference | `3_rd_txt2img_mushroom.png` (64×64) — a fresh, more stylized take |
+| 4 | **Krita only** | `krita_new_canvas(256, 256)` → sky bands and hills with `krita_draw_shape` → airbrushed ground via `krita_set_brush` + `krita_stroke` → shadow ellipses → the three mushrooms stamped in with `krita_set_pixels` (one layer each) → an `overlay`-blended sunlight layer → `krita_save` | `4_krita_scene.png` + `4_krita_scene.kra` (256×256, 8 layers — open the `.kra` to inspect the stack) |
+
+Prompt used for steps 2 and 3: *pixel art red mushroom with white spots,
+cream stem, green grass, game item sprite, clean outline*.
+
+Two things worth noticing when you reproduce it: `size_preset` means
+**output** pixels (passing `width=64` instead yields a 16px image, because
+`width` is the RD canvas and `pixel_size` defaults to 8), and when you pass a
+wrong argument name the gated `ase_*` tools answer with
+`accepted_params` instead of failing, which is how the calls above were
+corrected on the fly.
+
+> **Artist credit.** Every image in `examples/` was created by an AI agent —
+> Claude (model `claude-fable-5-1`) — operating this server's tools from a
+> chat session: the sprite's pixels were placed by the agent, the Retro
+> Diffusion prompts and settings were chosen by it, and the Krita scene was
+> composed and painted by it, with a human only picking the subject and
+> approving the result. No image was hand-edited afterwards.
+
 ## Running the test suites
 
 `tests/` holds the live integration batteries used during development. They
@@ -485,6 +519,7 @@ reapply_headless_patch.py  idempotent patcher for the RD extension's console fla
 requirements.txt           pinned direct dependencies
 pyproject.toml             optional `pip install .` → `pixelworks` console command
 tests/                     live integration suites (Aseprite workbench, v4 expansion, Krita v2)
+examples/                  the mushroom walkthrough above: .aseprite, PNGs, .kra, pipeline.png
 DEVELOPMENT.md             protocol notes, headless behavior, known traps, libkis/Aseprite gotchas
 presets.example.json       optional seed for presets.json
 krita-plugin/              the extended Krita MCP bridge plugin (kritamcp
@@ -533,7 +568,8 @@ copyright notices above are retained here.
 
 MIT — see [LICENSE](LICENSE).
 
-Note that this license covers **this server's code only**. It does not grant
+The example images under `examples/` are released under the same MIT
+terms. Note that otherwise this license covers **this server's code only**. It does not grant
 rights to the third-party products it talks to: Aseprite, the Retro Diffusion
 extension and its models (including `.pxlm` LoRAs), and Krita each remain
 under their own licenses and terms.
